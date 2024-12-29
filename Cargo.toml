@@ -1,0 +1,14 @@
+[package]
+name = "egui_sample"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.30"
+egui_extras = { version = "0.30", features = ["all_loaders"] }
+eframe = "0.30"
+image = "0.25.5"
+env_logger = "0.11.6"
+#image = { features = ["png", "jpeg"], version = "0.25.5" }
+
+opencv = "0.93.5"
