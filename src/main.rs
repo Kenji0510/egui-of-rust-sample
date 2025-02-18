@@ -24,12 +24,32 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
-#[derive(Default)]
+//#[derive(Default)]
 struct MyApp {
     count: u16,
     age: u16,
     frame: Mat,
     texture_handle: Option<egui::TextureHandle>,
+    video: VideoCapture,
+}
+
+impl Default for MyApp {
+    fn default() -> Self {
+        let mut video = VideoCapture::from_file(
+            "/home/kenji/workspace/Rust/opencv_sample/data/AutowareDemoVideo.m4v",
+            CAP_ANY,
+        )
+        .unwrap();
+        let mut frame = Mat::default();
+
+        MyApp {
+            count: 0,
+            age: 0,
+            frame,
+            texture_handle: None,
+            video,
+        }
+    }
 }
 
 impl MyApp {
@@ -56,7 +76,20 @@ impl MyApp {
             age: 0,
             frame,
             texture_handle,
+            video,
         }
+    }
+
+    fn load_image(&mut self, ctx: &egui::Context) {
+        if self.video.read(&mut self.frame).unwrap() {
+            if self.frame.empty() {
+                panic!("Frame is empty!");
+            }
+        } else {
+            panic!("Failed to read frame!");
+        }
+
+        self.texture_handle = Some(Self::mat_to_texture(ctx, &self.frame));
     }
 
     fn mat_to_texture(ctx: &egui::Context, mat: &Mat) -> egui::TextureHandle {
@@ -87,19 +120,12 @@ impl eframe::App for MyApp {
                 ui.add(egui::Slider::new(&mut self.age, 0..=100).text("age"));
                 if ui.button("Increment").clicked() {
                     self.age += 1;
+                    self.load_image(ctx);
                 }
 
                 if let Some(texture_handle) = &self.texture_handle {
                     ui.image(texture_handle);
                 }
-
-                // ui.add(
-                //     //egui::Image::new(egui::include_image!("../data/crab.png"))
-                //     egui::Image::new(egui::include_image!("../data/crab.png"))
-                //         .max_width(400.0)
-                //         .max_height(400.0)
-                //         .rounding(5.0),
-                // );
             });
 
             if ui.button("Click here").clicked() {
