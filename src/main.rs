@@ -1,4 +1,5 @@
 use core::panic;
+use std::time::{Duration, Instant};
 
 use egui::ScrollArea;
 use opencv::{
@@ -31,6 +32,7 @@ struct MyApp {
     frame: Mat,
     texture_handle: Option<egui::TextureHandle>,
     video: VideoCapture,
+    timer: Instant,
 }
 
 impl Default for MyApp {
@@ -48,6 +50,7 @@ impl Default for MyApp {
             frame,
             texture_handle: None,
             video,
+            timer: Instant::now(),
         }
     }
 }
@@ -77,6 +80,7 @@ impl MyApp {
             frame,
             texture_handle,
             video,
+            timer: Instant::now(),
         }
     }
 
@@ -90,6 +94,7 @@ impl MyApp {
         }
 
         self.texture_handle = Some(Self::mat_to_texture(ctx, &self.frame));
+        println!("Frame updated!");
     }
 
     fn mat_to_texture(ctx: &egui::Context, mat: &Mat) -> egui::TextureHandle {
@@ -112,6 +117,11 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.timer.elapsed() >= Duration::from_millis(200) {
+            self.load_image(ctx);
+            self.timer = Instant::now();
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
                 ui.label("Hello, welcome to egui!");
