@@ -1,12 +1,14 @@
-use core::panic;
-use std::time::{Duration, Instant};
+use std::{
+    sync::mpsc::{self, Receiver},
+    thread,
+    time::{Duration, Instant},
+};
 
 use egui::ScrollArea;
 use opencv::{
     core::{Mat, Vec3b},
-    imgcodecs,
+    imgproc,
     prelude::*,
-    text,
     videoio::{VideoCapture, CAP_ANY},
 };
 
@@ -14,7 +16,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "egui app",
         eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 600.0]),
+            viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 720.0]),
             ..Default::default()
         },
         Box::new(|cc| {
@@ -29,98 +31,113 @@ fn main() -> Result<(), eframe::Error> {
 struct MyApp {
     count: u16,
     age: u16,
-    frame: Mat,
     texture_handle: Option<egui::TextureHandle>,
-    video: VideoCapture,
+    frame_receiver: Receiver<egui::ColorImage>,
     timer: Instant,
 }
 
-impl Default for MyApp {
-    fn default() -> Self {
-        let mut video = VideoCapture::from_file(
-            "/home/kenji/workspace/Rust/opencv_sample/data/AutowareDemoVideo.m4v",
-            CAP_ANY,
-        )
-        .unwrap();
-        let mut frame = Mat::default();
-
-        MyApp {
-            count: 0,
-            age: 0,
-            frame,
-            texture_handle: None,
-            video,
-            timer: Instant::now(),
-        }
-    }
-}
+// impl Default for MyApp {
+//     fn default() -> Self {
+//         let mut video = VideoCapture::from_file(
+//             "/home/kenji/workspace/Rust/opencv_sample/data/AutowareDemoVideo.m4v",
+//             CAP_ANY,
+//         )
+//         .unwrap();
+//         let mut frame = Mat::default();
+//     }
+// }
 
 impl MyApp {
     fn new(ctx: &egui::Context) -> Self {
-        let mut video = VideoCapture::from_file(
-            "/home/kenji/workspace/Rust/opencv_sample/data/AutowareDemoVideo.m4v",
-            CAP_ANY,
-        )
-        .unwrap();
-        let mut frame = Mat::default();
+        let (tx, rx) = mpsc::channel();
 
-        if video.read(&mut frame).unwrap() {
-            if frame.empty() {
-                panic!("Frame is empty!");
+        thread::spawn(move || {
+            let mut video = VideoCapture::from_file(
+                "/home/kenji/workspace/Rust/egui_sample/data/sample02.m4v",
+                CAP_ANY,
+            )
+            .expect("Failed to open video file!");
+            let mut frame = Mat::default();
+
+            let mut rgba_frame = Mat::default();
+
+            loop {
+                if let Ok(read_suucess) = video.read(&mut frame) {
+                    if !read_suucess || frame.empty() {
+                        eprintln!("Video ended or frame is empty!");
+                        break;
+                    }
+
+                    // let size = [frame.cols() as usize, frame.rows() as usize];
+                    // let mut pixels = Vec::with_capacity(size[0] * size[1] * 4);
+                    // for y in 0..frame.rows() {
+                    //     for x in 0..frame.cols() {
+                    //         let pixel = frame.at_2d::<Vec3b>(y, x).unwrap();
+                    //         pixels.push(pixel[2]);
+                    //         pixels.push(pixel[1]);
+                    //         pixels.push(pixel[0]);
+                    //         pixels.push(255);
+                    //     }
+                    // }
+                    // let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+
+                    // if tx.send(color_image).is_err() {
+                    //     eprintln!("Failed to send frame to main thread!");
+                    //     break;
+                    // }
+
+                    if let Err(e) =
+                        imgproc::cvt_color(&frame, &mut rgba_frame, imgproc::COLOR_BGR2RGBA, 0)
+                    {
+                        eprintln!("Failed to convert color: {}", e);
+                        break;
+                    }
+
+                    if let Ok(rgba_bytes) = rgba_frame.data_bytes() {
+                        let size = [rgba_frame.cols() as usize, rgba_frame.rows() as usize];
+                        let color_image =
+                            egui::ColorImage::from_rgba_unmultiplied(size, rgba_bytes);
+                        if tx.send(color_image).is_err() {
+                            break;
+                        }
+                    } else {
+                        eprintln!("Failed to get rgba_frame data bytes!");
+                        break;
+                    }
+                } else {
+                    eprintln!("Failed to read frame!");
+                    break;
+                }
+                thread::sleep(Duration::from_millis(16));
             }
-        } else {
-            panic!("Failed to read frame!");
-        }
+        });
 
-        let texture_handle = Some(Self::mat_to_texture(ctx, &frame));
+        let texture_handle = match rx.try_recv() {
+            Ok(color_image) => {
+                Some(ctx.load_texture("frame_texture", color_image, Default::default()))
+            }
+            Err(_) => None,
+        };
 
-        MyApp {
+        Self {
             count: 0,
             age: 0,
-            frame,
             texture_handle,
-            video,
+            frame_receiver: rx,
             timer: Instant::now(),
         }
-    }
-
-    fn load_image(&mut self, ctx: &egui::Context) {
-        if self.video.read(&mut self.frame).unwrap() {
-            if self.frame.empty() {
-                panic!("Frame is empty!");
-            }
-        } else {
-            panic!("Failed to read frame!");
-        }
-
-        self.texture_handle = Some(Self::mat_to_texture(ctx, &self.frame));
-        println!("Frame updated!");
-    }
-
-    fn mat_to_texture(ctx: &egui::Context, mat: &Mat) -> egui::TextureHandle {
-        // Convert Mat to egui::ColorImage
-        let size = [mat.cols() as usize, mat.rows() as usize];
-        let mut pixels = Vec::with_capacity(size[0] * size[1] * 4);
-        for y in 0..mat.rows() {
-            for x in 0..mat.cols() {
-                let pixel = mat.at_2d::<Vec3b>(y, x).unwrap();
-                pixels.push(pixel[2]); // R
-                pixels.push(pixel[1]); // G
-                pixels.push(pixel[0]); // B
-                pixels.push(255); // A
-            }
-        }
-        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
-        ctx.load_texture("frame_texture", color_image, Default::default())
     }
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.timer.elapsed() >= Duration::from_millis(200) {
-            self.load_image(ctx);
-            self.timer = Instant::now();
+        while let Ok(color_image) = self.frame_receiver.try_recv() {
+            self.texture_handle =
+                Some(ctx.load_texture("frame_texture", color_image, Default::default()));
+            println!("Frame received!");
         }
+
+        ctx.request_repaint();
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
@@ -130,7 +147,6 @@ impl eframe::App for MyApp {
                 ui.add(egui::Slider::new(&mut self.age, 0..=100).text("age"));
                 if ui.button("Increment").clicked() {
                     self.age += 1;
-                    self.load_image(ctx);
                 }
 
                 if let Some(texture_handle) = &self.texture_handle {
